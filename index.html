@@ -13,7 +13,9 @@
 
 <script type="text/javascript">
 var storedState = localStorage.getItem('elm-todo-save');
-var startingState = storedState ? JSON.parse(storedState) : null;
+console.log(storedState)
+//var startingState = storedState ? JSON.parse(storedState) : null;
+var startingState =  null;
 var todomvc = Elm.Todo.fullscreen(startingState);
 todomvc.ports.setStorage.subscribe(function(state) {
     localStorage.setItem('elm-todo-save', JSON.stringify(state));

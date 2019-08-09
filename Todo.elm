@@ -18,14 +18,16 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Html.Keyed as Keyed
 import Html.Lazy exposing (lazy, lazy2)
-import Json.Decode as Json
+import Json.Decode as Json exposing (string, int, bool,  list, field, map4, decodeString, Decoder) 
+import Http
 import String
 import Task
 
 
-main : Program (Maybe Model) Model Msg
+
+main : Program ( Maybe Model ) Model Msg
 main =
-    Html.programWithFlags
+   Html.programWithFlags
         { init = init
         , view = view
         , update = updateWithStorage
@@ -60,6 +62,7 @@ type alias Model =
     , field : String
     , uid : Int
     , visibility : String
+    , errorMessage : Maybe String
     }
 
 
@@ -74,9 +77,10 @@ type alias Entry =
 emptyModel : Model
 emptyModel =
     { entries = []
-    , visibility = "All"
     , field = ""
     , uid = 0
+    , visibility = "All"
+    , errorMessage =Nothing 
     }
 
 
@@ -91,7 +95,7 @@ newEntry desc id =
 
 init : Maybe Model -> ( Model, Cmd Msg )
 init savedModel =
-    Maybe.withDefault emptyModel savedModel ! []
+   ( Maybe.withDefault  emptyModel  savedModel, httpCommand) 
 
 
 
@@ -113,8 +117,24 @@ type Msg
     | Check Int Bool
     | CheckAll Bool
     | ChangeVisibility String
+    | SendHttpRequest
+    | DataReceived (Result Http.Error (List Entry))
 
 
+
+httpCommand : Cmd Msg
+httpCommand = 
+    Http.send DataReceived
+       <| Http.get "http://localhost:3000/entries"
+       <| Json.list entryDecoder
+
+entryDecoder : Json.Decoder Entry
+entryDecoder = 
+  map4 Entry
+     (field "description" string)
+     (field "completed" bool)
+     (field "editing" bool)
+     (field "id" int)
 
 -- How we update our Model on a given Msg?
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -122,6 +142,24 @@ update msg model =
     case msg of
         NoOp ->
             model ! []
+        
+        SendHttpRequest ->
+           (model, httpCommand)
+        
+        DataReceived (Ok entries) ->
+           ( { model
+                | entries = entries
+                , errorMessage = Nothing
+             }
+           , Cmd.none
+           )
+
+        DataReceived (Err httpError) ->
+           ( { model
+               | errorMessage = Just (createErrorMessage httpError)
+             }
+           , Cmd.none
+           )
 
         Add ->
             { model
@@ -196,6 +234,23 @@ update msg model =
                 ! []
 
 
+createErrorMessage : Http.Error -> String
+createErrorMessage httpError =
+      case httpError of
+         Http.BadUrl message ->
+             message
+
+         Http.Timeout -> "Server is taeking too long to respond"
+         
+         Http.NetworkError ->
+              "No internet connection"
+
+         Http.BadStatus response ->
+               response.status.message
+
+         Http.BadPayload message response ->
+              message
+
 
 -- VIEW
 
@@ -214,6 +269,25 @@ view model =
             ]
         , infoFooter
         ]
+
+viewPostsOrError : Model -> Html Msg
+viewPostsOrError model = 
+     case model.errorMessage of
+         Just message ->
+             viewError message
+
+         Nothing -> viewEntries model.visibility model.entries
+
+viewError: String -> Html Msg
+viewError errorMessage = 
+    let
+       errorHeading = 
+           "Couldnt fetch data at this time."
+    in
+      div []
+          [ h3 [] [text errorHeading ]
+          , text ("Error: " ++ errorMessage)
+          ]
 
 
 viewInput : String -> Html Msg
@@ -290,8 +364,7 @@ viewEntries visibility entries =
                 [ text "Mark all as complete" ]
             , Keyed.ul [ class "todo-list" ] <|
                 List.map viewKeyedEntry (List.filter isVisible entries)
-            ]
-
+ ]
 
 
 -- VIEW INDIVIDUAL ENTRIES
@@ -323,6 +396,8 @@ viewEntry todo =
                 , onClick (Delete todo.id)
                 ]
                 []
+              
+
             ]
         , input
             [ class "edit"
